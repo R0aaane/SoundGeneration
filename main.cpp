@@ -2,371 +2,330 @@
 #include <fstream>
 #include <vector>
 #include <cmath>
-#include <limits>
-#include <windows.h>
+#include <complex>
+#include <algorithm>
+#include <cstring>
 
-class SoundData
+using Complex = std::complex<double>;
+const double PI = acos(-1.0);
+
+// 2チャンネル音声データ
+struct StereoData
 {
-public:
-	SoundData();
-	SoundData(int length, int bits, int fs);
+    int length;
+    int fs;
+    std::vector<double> ch0;
+    std::vector<double> ch1;
 
-	bool saveWAVFile(const char* filePath, int fadeWidth = 0);
-	bool loadWAVFile(const char* filePath);
-
-	void fade(int startWidth, int endWidth);
-
-	void addWave(SoundData& wave, int start);
-	bool saveCSVFile(const char* filePath);
-	void createSinWave(double a, double f0, int wnum);
-	void createSquareWave50(double a, double f0, int wnum);
-
-	int length;
-	int bits;
-	int fs;
-	std::vector<double> data;
+    bool loadWAV(const char* filepath);
 };
-
-struct Chunk
-{
-	char id[4];
-};
-
-const double pi = acos(-1.0);
-
-int main(void)
-{
-	SoundData sound;
-	if (!sound.loadWAVFile("input.wav"))
-	{
-		std::cerr << "WAV読み込みに失敗しました（PCM/mono/16bitのみ対応）\n";
-		return 1;
-	}
-
-	for (int i = 0; i < 100 && i < sound.length; ++i)
-	{
-		std::cout << i << ": " << sound.data[i] << std::endl;
-	}
-
-
-	sound.saveCSVFile("waveform.csv");
-	std::cout << "波形データを waveform.csv に保存しました\n";
-	return 0;
-	
-
-	//音声データと波形データの出力
-	/*
-	SoundData sound(6 * 44100, 16, 44100);
-
-	int soundWidth = 26460;
-	double a = 0.2;
-	double f[8] = { 523.25, 587.33,659.26, 698.45, 783.99, 880.0,
-		987.77, 1046.5 };
-	
-	int pos = 0;
-	for (int i = 0; i < 8; ++i)
-	{
-		SoundData s(soundWidth, 16, 44100);
-		//s.createSinWave(a, f[i], 1);
-		s.createSquareWave50(a, f[i], 50);
-		s.fade(441, 441 * 2);
-		sound.addWave(s, pos);
-		pos += soundWidth + 1000;
-	}
-
-	sound.saveWAVFile("test.wav");
-	std::cout << "サウンドファイルを保存しました！" << std::endl;
-
-	sound.saveCSVFile("test.csv");	
-	std::cout << "波形データを保存しました！" << std::endl;
-	return 0;
-	*/
-}
-
-SoundData::SoundData()
-	: SoundData(44100, 16, 44100)
-{
-}
-
-SoundData::SoundData(int length, int bits, int fs)
-	: length(length)
-	, bits(bits)
-	, fs(fs)
-	, data(length)
-{
-	for (size_t i = 0; i < data.size(); ++i)
-	{
-		data[i] = 0.0;
-	}
-}
-
-bool SoundData::saveWAVFile(const char* filePath, int fadeWidth)
-{
-	std::ofstream fout;
-	fout.open(filePath, std::ios::out | std::ios::binary | std::ios::trunc);
-	if (!fout) return false;
-
-	//モノナル、2バイト量子化を前提に保存する波形を生成
-	std::vector<short> wdata(data.size());
-	for (int i = 0; i < length; ++i)
-	{
-		//　振幅を-1.0～1.0にクリッピング
-		double amp = (data[i] > 1.0) ? 1.0 : data[i];
-		amp = (amp < -1.0) ? -1.0 : amp;
-		wdata[i] = (short)(amp * SHRT_MAX);
-	}
-
-	int32_t wsize = sizeof(short) * length;
-
-	Chunk riffChunk = { {'R', 'I', 'F', 'F'} };
-	int32_t riffSize = 12 + sizeof(PCMWAVEFORMAT) + 8 + wsize;
-	Chunk waveChunk = { {'W', 'A', 'V', 'E'} };
-	Chunk formatChunk = { {'f', 'm', 't', ' '} };
-	int32_t fsize = sizeof(PCMWAVEFORMAT);
-	PCMWAVEFORMAT wform;
-	wform.wf.wFormatTag = 1;
-	wform.wf.nChannels = 1;
-	wform.wf.nSamplesPerSec = (DWORD)fs;
-	wform.wf.nAvgBytesPerSec = (DWORD)(bits * fs / 8);
-	wform.wf.nBlockAlign = (WORD)(bits / 8);
-	wform.wBitsPerSample = bits; \
-		Chunk dataChunk = { {'d', 'a', 't', 'a'} };
-	int32_t dsize = wsize;
-	fout.write((char*)&riffChunk, sizeof(Chunk));
-	fout.write((char*)&riffSize, sizeof(int32_t));
-	fout.write((char*)&waveChunk, sizeof(Chunk));
-	fout.write((char*)&formatChunk, sizeof(Chunk));
-	fout.write((char*)&fsize, sizeof(int32_t));
-	fout.write((char*)&wform, sizeof(PCMWAVEFORMAT));
-	fout.write((char*)&dataChunk, sizeof(Chunk));
-	fout.write((char*)&dsize, sizeof(int32_t));
-	fout.write((char*)wdata.data(), wsize);
-
-	fout.close();
-
-	return true;
-
-}
-
-void SoundData::fade(int startWidth, int endWidth)
-{
-	double a = 1.0;
-	double startStep = 0.0;
-	double endStep = 0.0;
-	if (startWidth > 0)
-	{
-		a = 0.0;
-		startStep = 1.0 / (double)startWidth;
-	}
-	if (endWidth > 0)
-	{
-		endStep = 1.0 / (double)endWidth;
-	}
-
-	for (size_t i = 0; i < data.size(); ++i)
-	{
-
-		data[i] *= a;
-		if (i < startWidth)
-		{
-			a += startStep;
-			a = (a > 1.0) ? 1.0 : a;
-		}
-		else if (i == startWidth)
-		{
-			a = 1.0;
-		}
-		else if (i >= data.size() - 1 - endWidth)
-		{
-			a -= endStep;
-			a = (a < 0.0) ? 0.0 : a;
-		}
-	}
-}
-
-bool SoundData::saveCSVFile(const char* filePath)
-{
-	std::ofstream fout;
-	fout.open(filePath, std::ios::out | std::ios::trunc);
-	if (!fout) return false;
-
-	fout << "標本化周波数" << fs << std::endl;
-	fout << "量子化ビット数" << bits << std::endl;
-	fout << "音の個数" << length << std::endl << std::endl;
-	fout << "index, 時間[sec], 変位" << std::endl;
-	double w = 1.0 / fs;
-	for (int i = 0; i < length; ++i)
-	{
-		fout << i << "," << (double)i * w << ","
-			<< data[i] << std::endl;
-	}
-	fout.close();
-
-	return true;
-}
-
-void SoundData::createSinWave(double a, double f0, int wnum)
-{
-	for (int i = 0; i < length; ++i)
-	{
-		data[i] = 0.0;
-		for (int j = 0; j < wnum; ++j)
-		{
-			data[i] += a * std::sin(2.0 * pi * (j + 1) * f0 * i / fs);
-		}
-	}
-}
-
-void SoundData::addWave(SoundData& wave, int start)
-{
-	for (int i = 0; i < wave.length; ++i)
-	{
-		int j = start + i;
-		if (j >= length) break;
-
-		data[j] += wave.data[i];
-	}
-}
-
-void SoundData::createSquareWave50(double a, double f0, int wnum)
-{
-	double t = 1.0 / fs;
-	double ampl = 4.0 * a / pi;
-	for (int i = 0; i < length; ++i)
-	{
-		data[i] = 0.0;
-		for (int j = 0; j < wnum; ++j)
-		{
-			int n = 2 * j + 1;
-			data[i] += (1.0 / (double)n) * std::sin(2.0 * pi * n * f0 * t * i);
-		}
-		data[i] *= ampl;
-	}
-}
 
 #pragma pack(push, 1)
 struct RiffHeader
 {
-	char riff[4]; // "RIFF"
-	uint32_t size;
-	char wave[4]; // "WAVE"
+    char riff[4];
+    uint32_t size;
+    char wave[4];
 };
 
 struct ChunkHeader
 {
-	char id[4];
-	uint32_t size;
+    char id[4];
+    uint32_t size;
 };
 #pragma pack(pop)
 
 static bool fourccEquals(const char id[4], const char* s)
 {
-	return id[0] == s[0] && id[1] == s[1] && id[2] == s[2] && id[3] == s[3];
+    return id[0] == s[0] && id[1] == s[1] && id[2] == s[2] && id[3] == s[3];
 }
 
-bool SoundData::loadWAVFile(const char* filePath)
+bool StereoData::loadWAV(const char* filepath)
 {
-	std::ifstream fin(filePath, std::ios::binary);
-	if (!fin) return false;
+    std::ifstream fin(filepath, std::ios::binary);
+    if (!fin) return false;
 
-	RiffHeader rh{};
-	fin.read(reinterpret_cast<char*>(&rh), sizeof(rh));
-	if (!fin) return false;
+    RiffHeader rh{};
+    fin.read(reinterpret_cast<char*>(&rh), sizeof(rh));
+    if (!fin || !fourccEquals(rh.riff, "RIFF") || !fourccEquals(rh.wave, "WAVE"))
+        return false;
 
-	if (!fourccEquals(rh.riff, "RIFF") || !fourccEquals(rh.wave, "WAVE"))
-		return false;
+    bool fmtFound = false, dataFound = false;
+    uint16_t audioFormat = 0, numChannels = 0, bitsPerSample = 0;
+    uint32_t sampleRate = 0;
+    std::vector<char> rawData;
 
-	// fmt と data を探す
-	bool fmtFound = false;
-	bool dataFound = false;
+    while (fin && !(fmtFound && dataFound))
+    {
+        ChunkHeader ch{};
+        fin.read(reinterpret_cast<char*>(&ch), sizeof(ch));
+        if (!fin) break;
 
-	uint16_t audioFormat = 0;
-	uint16_t numChannels = 0;
-	uint32_t sampleRate = 0;
-	uint16_t bitsPerSample = 0;
+        if (fourccEquals(ch.id, "fmt "))
+        {
+            if (ch.size < 16) return false;
+            std::vector<uint8_t> fmtBuf(ch.size);
+            fin.read(reinterpret_cast<char*>(fmtBuf.data()), ch.size);
+            if (!fin) return false;
 
-	std::vector<char> rawData;
+            auto read_u16 = [&](size_t off) {
+                uint16_t v;
+                std::memcpy(&v, fmtBuf.data() + off, sizeof(v));
+                return v;
+                };
+            auto read_u32 = [&](size_t off) {
+                uint32_t v;
+                std::memcpy(&v, fmtBuf.data() + off, sizeof(v));
+                return v;
+                };
 
-	while (fin && !(fmtFound && dataFound))
-	{
-		ChunkHeader ch{};
-		fin.read(reinterpret_cast<char*>(&ch), sizeof(ch));
-		if (!fin) break;
+            audioFormat = read_u16(0);
+            numChannels = read_u16(2);
+            sampleRate = read_u32(4);
+            bitsPerSample = read_u16(14);
 
-		if (fourccEquals(ch.id, "fmt "))
-		{
-			std::vector<unsigned char> fmtBuf(ch.size);
-			fin.read(reinterpret_cast<char*>(fmtBuf.data()), ch.size);
-			if (!fin) return false;
+            std::cout << "Format: " << audioFormat << ", Channels: " << numChannels
+                << ", Rate: " << sampleRate << ", Bits: " << bitsPerSample << std::endl;
+            fmtFound = true;
+        }
+        else if (fourccEquals(ch.id, "data"))
+        {
+            rawData.resize(ch.size);
+            fin.read(rawData.data(), ch.size);
+            if (!fin) return false;
+            dataFound = true;
+        }
+        else
+        {
+            fin.seekg(ch.size, std::ios::cur);
+        }
 
-			// fmt は最低 16 バイト必要
-			if (ch.size < 16) return false;
+        if (ch.size % 2 == 1) fin.seekg(1, std::ios::cur);
+    }
 
-			// 安全に little-endian 値を読み込む（memcpy）
-			auto read_u16 = [&](size_t off) -> uint16_t {
-				uint16_t v;
-				std::memcpy(&v, fmtBuf.data() + off, sizeof(v));
-				return v;
-				};
-			auto read_u32 = [&](size_t off) -> uint32_t {
-				uint32_t v;
-				std::memcpy(&v, fmtBuf.data() + off, sizeof(v));
-				return v;
-				};
+    if (!fmtFound || !dataFound) return false;
+    if (audioFormat != 1 || numChannels != 2 || bitsPerSample != 16)
+    {
+        std::cerr << "エラー: PCM/ステレオ(2ch)/16bit のみ対応" << std::endl;
+        return false;
+    }
 
-			audioFormat = read_u16(0);
-			numChannels = read_u16(2);
-			sampleRate = read_u32(4);
-			bitsPerSample = read_u16(14);
+    fs = static_cast<int>(sampleRate);
+    const size_t totalSamples = rawData.size() / sizeof(int16_t);
+    length = static_cast<int>(totalSamples / 2);
 
-			// ここで出力（代入後）
-			std::cout
-				<< "fmt: audioFormat=" << audioFormat
-				<< " channels=" << numChannels
-				<< " sampleRate=" << sampleRate
-				<< " bits=" << bitsPerSample
-				<< std::endl;
+    ch0.resize(length);
+    ch1.resize(length);
 
-			fmtFound = true;
-		}
-		else if (fourccEquals(ch.id, "data"))
-		{
-			rawData.resize(ch.size);
-			fin.read(rawData.data(), ch.size);
-			if (!fin) return false;
+    const int16_t* p = reinterpret_cast<const int16_t*>(rawData.data());
+    for (int i = 0; i < length; ++i)
+    {
+        ch0[i] = static_cast<double>(p[i * 2 + 0]) / 32768.0;
+        ch1[i] = static_cast<double>(p[i * 2 + 1]) / 32768.0;
+    }
 
-			dataFound = true;
-		}
-		else
-		{
-			// その他チャンクはスキップ
-			fin.seekg(ch.size, std::ios::cur);
-		}
+    return true;
+}
 
-		// WAVは偶数境界（パディング1バイト）を持つ場合がある
-		if (ch.size % 2 == 1)
-			fin.seekg(1, std::ios::cur);
-	}
+// 2x2 エルミート行列の固有値・固有ベクトルを解析的に計算
+void eigen2x2(const Complex& r00, const Complex& r01, const Complex& r11,
+    double& lambda1, double& lambda2,
+    Complex& v1_0, Complex& v1_1,
+    Complex& v2_0, Complex& v2_1)
+{
+    // 実対称（エルミート）行列の固有値
+    double a = std::real(r00);
+    double d = std::real(r11);
+    double b = std::abs(r01); // |r01| (r01 = r10*)
 
-	if (!fmtFound || !dataFound) return false;
+    double trace = a + d;
+    double det = a * d - b * b;
+    double discriminant = trace * trace / 4.0 - det;
 
-	// まずは「PCM(1), mono(1ch), 16bit」限定で実装
-	if (audioFormat != 1 || numChannels != 1 || bitsPerSample != 16)
-		return false;
+    if (discriminant < 0) discriminant = 0;
 
-	fs = static_cast<int>(sampleRate);
-	bits = static_cast<int>(bitsPerSample);
+    lambda1 = trace / 2.0 + std::sqrt(discriminant);
+    lambda2 = trace / 2.0 - std::sqrt(discriminant);
 
-	const size_t sampleCount = rawData.size() / sizeof(int16_t);
-	length = static_cast<int>(sampleCount);
-	data.assign(sampleCount, 0.0);
+    // 固有ベクトル (lambda1 > lambda2 を仮定)
+    if (std::abs(b) > 1e-10)
+    {
+        // v1 = [r01, lambda1 - a]^T (正規化前)
+        Complex temp = r01;
+        double norm = std::sqrt(std::norm(temp) + (lambda1 - a) * (lambda1 - a));
+        v1_0 = temp / norm;
+        v1_1 = Complex(lambda1 - a, 0) / norm;
 
-	const int16_t* p = reinterpret_cast<const int16_t*>(rawData.data());
-	for (size_t i = 0; i < sampleCount; ++i)
-	{
-		// -32768..32767 を -1..1 に正規化
-		data[i] = static_cast<double>(p[i]) / 32768.0;
-	}
+        // v2 = [r01, lambda2 - a]^T (正規化前)
+        norm = std::sqrt(std::norm(temp) + (lambda2 - a) * (lambda2 - a));
+        v2_0 = temp / norm;
+        v2_1 = Complex(lambda2 - a, 0) / norm;
+    }
+    else
+    {
+        // 対角行列の場合
+        v1_0 = Complex(1, 0);
+        v1_1 = Complex(0, 0);
+        v2_0 = Complex(0, 0);
+        v2_1 = Complex(1, 0);
+    }
+}
 
-	return true;
+// 2チャンネル用のMUSIC法
+std::vector<double> music2ch(const StereoData& data,
+    double micSpacing,  // マイク間隔 [m]
+    double frequency,   // 解析周波数 [Hz]
+    int startSample,    // 解析開始位置
+    int windowSize,     // 解析窓サイズ
+    double soundSpeed = 343.0)
+{
+    if (startSample + windowSize > data.length)
+    {
+        windowSize = data.length - startSample;
+    }
+
+    // 共分散行列を計算 (2x2)
+    Complex r00(0, 0), r01(0, 0), r11(0, 0);
+
+    for (int i = startSample; i < startSample + windowSize; ++i)
+    {
+        double s0 = data.ch0[i];
+        double s1 = data.ch1[i];
+
+        r00 += Complex(s0 * s0, 0);
+        r01 += Complex(s0 * s1, 0);
+        r11 += Complex(s1 * s1, 0);
+    }
+
+    r00 /= double(windowSize);
+    r01 /= double(windowSize);
+    r11 /= double(windowSize);
+
+    std::cout << "共分散行列:" << std::endl;
+    std::cout << "  R[0][0] = " << r00 << std::endl;
+    std::cout << "  R[0][1] = " << r01 << std::endl;
+    std::cout << "  R[1][1] = " << r11 << std::endl;
+
+    // 固有値分解
+    double lambda1, lambda2;
+    Complex v1_0, v1_1, v2_0, v2_1;
+    eigen2x2(r00, r01, r11, lambda1, lambda2, v1_0, v1_1, v2_0, v2_1);
+
+    std::cout << "固有値:" << std::endl;
+    std::cout << "  λ1 = " << lambda1 << " (信号)" << std::endl;
+    std::cout << "  λ2 = " << lambda2 << " (ノイズ)" << std::endl;
+
+    // 2チャンネルの場合、音源は1つのみ推定可能
+    // ノイズ部分空間 = 小さい固有値に対応する固有ベクトル (v2)
+    Complex noise_v0 = v2_0;
+    Complex noise_v1 = v2_1;
+
+    // MUSICスペクトル計算 (-90° to +90°)
+    std::vector<double> spectrum(181);
+    double omega = 2.0 * PI * frequency;
+
+    for (int i = 0; i <= 180; ++i)
+    {
+        double angle = (i - 90) * PI / 180.0; // -90° to +90°
+
+        // ステアリングベクトル a(θ) = [1, e^(-jωτ)]^T
+        double tau = micSpacing * std::sin(angle) / soundSpeed;
+        Complex a0(1, 0);
+        Complex a1 = std::exp(Complex(0, -omega * tau));
+
+        // a^H * v_noise
+        Complex inner = std::conj(a0) * noise_v0 + std::conj(a1) * noise_v1;
+        double denominator = std::norm(inner);
+
+        // MUSIC疑似スペクトル
+        spectrum[i] = (denominator > 1e-10) ? 1.0 / denominator : 0.0;
+    }
+
+    return spectrum;
+}
+
+// スペクトルからピーク検出
+double findPeakAngle(const std::vector<double>& spectrum)
+{
+    double maxVal = 0;
+    int maxIdx = 0;
+
+    for (int i = 0; i < spectrum.size(); ++i)
+    {
+        if (spectrum[i] > maxVal)
+        {
+            maxVal = spectrum[i];
+            maxIdx = i;
+        }
+    }
+
+    return (maxIdx - 90); // -90 to +90 度
+}
+
+// スペクトル保存
+void saveSpectrum(const char* filename, const std::vector<double>& spectrum)
+{
+    std::ofstream fout(filename);
+    if (!fout) return;
+
+    fout << "角度[度],MUSIC疑似スペクトル" << std::endl;
+    for (int i = 0; i < spectrum.size(); ++i)
+    {
+        double angle = i - 90;
+        fout << angle << "," << spectrum[i] << std::endl;
+    }
+    fout.close();
+}
+
+int main()
+{
+    std::cout << "=== 2チャンネルMUSIC法による音源方向推定 ===" << std::endl << std::endl;
+
+    // ステレオWAVファイル読み込み
+    StereoData data;
+    if (!data.loadWAV("input.wav"))
+    {
+        std::cerr << "WAV読み込み失敗（PCM/ステレオ/16bitのファイルを指定してください）" << std::endl;
+        return 1;
+    }
+
+    std::cout << "読み込み成功!" << std::endl;
+    std::cout << "  サンプル数: " << data.length << std::endl;
+    std::cout << "  サンプリング周波数: " << data.fs << " Hz" << std::endl;
+    std::cout << "  再生時間: " << (double)data.length / data.fs << " 秒" << std::endl;
+    std::cout << std::endl;
+
+    // パラメータ設定
+    double micSpacing = 0.15;      // マイク間隔 15cm
+    double frequency = 1000.0;     // 解析周波数 1kHz
+    int startSample = 0;           // 解析開始位置
+    int windowSize = std::min(8192, data.length); // 解析窓サイズ
+
+    std::cout << "=== パラメータ ===" << std::endl;
+    std::cout << "マイク間隔: " << micSpacing * 100 << " cm" << std::endl;
+    std::cout << "解析周波数: " << frequency << " Hz" << std::endl;
+    std::cout << "解析窓サイズ: " << windowSize << " サンプル ("
+        << (double)windowSize / data.fs << " 秒)" << std::endl;
+    std::cout << std::endl;
+
+    // MUSIC法実行
+    std::cout << "=== MUSIC法を実行中 ===" << std::endl;
+    std::vector<double> spectrum = music2ch(data, micSpacing, frequency,
+        startSample, windowSize);
+
+    // ピーク検出
+    double peakAngle = findPeakAngle(spectrum);
+
+    std::cout << std::endl << "=== 推定結果 ===" << std::endl;
+    std::cout << "推定された音源方向: " << peakAngle << " 度" << std::endl;
+    std::cout << "  (0度 = マイク軸に垂直（正面）" << std::endl;
+    std::cout << "  +90度 = マイク2の方向" << std::endl;
+    std::cout << "  -90度 = マイク1の方向)" << std::endl;
+    std::cout << std::endl;
+
+    // 結果を保存
+    saveSpectrum("music_spectrum_2ch.csv", spectrum);
+    std::cout << "スペクトルを music_spectrum_2ch.csv に保存しました" << std::endl;
+
+    return 0;
 }
